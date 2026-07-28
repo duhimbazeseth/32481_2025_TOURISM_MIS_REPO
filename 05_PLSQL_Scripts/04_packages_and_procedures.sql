@@ -1,0 +1,139 @@
+-- ============================================================================
+-- Script 04: PL/SQL Packages, Procedures, Functions, and Cursors
+-- System: Tourism Booking MIS
+-- User: U_32481_2025_TOURISM_BOOKING_DB
+-- ============================================================================
+
+ALTER SESSION SET CONTAINER = PDB_32481_2025_TOURISM_BOOKING_DB;
+
+CREATE OR REPLACE PACKAGE PKG_TOURISM_MANAGEMENT AS
+    -- Function to check tour package availability
+    FUNCTION FN_CHECK_PACKAGE_AVAILABILITY(
+        P_PACKAGE_ID IN NUMBER,
+        P_REQUESTED_GUESTS IN NUMBER
+    ) RETURN BOOLEAN;
+
+    -- Procedure to process new booking with transaction control
+    PROCEDURE PROC_CREATE_BOOKING(
+        P_TOURIST_ID    IN NUMBER,
+        P_PACKAGE_ID    IN NUMBER,
+        P_TRAVEL_DATE   IN DATE,
+        P_NUM_GUESTS    IN NUMBER,
+        P_BOOKING_ID    OUT NUMBER
+    );
+
+    -- Procedure to process payment and update status
+    PROCEDURE PROC_PROCESS_PAYMENT(
+        P_BOOKING_ID     IN NUMBER,
+        P_AMOUNT         IN NUMBER,
+        P_PAYMENT_METHOD IN VARCHAR2
+    );
+END PKG_TOURISM_MANAGEMENT;
+/
+
+CREATE OR REPLACE PACKAGE BODY PKG_TOURISM_MANAGEMENT AS
+
+    FUNCTION FN_CHECK_PACKAGE_AVAILABILITY(
+        P_PACKAGE_ID IN NUMBER,
+        P_REQUESTED_GUESTS IN NUMBER
+    ) RETURN BOOLEAN IS
+        V_MAX_CAP NUMBER;
+        V_BOOKED_CAP NUMBER := 0;
+    BEGIN
+        SELECT MAX_CAPACITY INTO V_MAX_CAP
+        FROM TOUR_PACKAGE
+        WHERE PACKAGE_ID = P_PACKAGE_ID;
+
+        SELECT NVL(SUM(NUMBER_OF_GUESTS), 0) INTO V_BOOKED_CAP
+        FROM BOOKING
+        WHERE PACKAGE_ID = P_PACKAGE_ID AND BOOKING_STATUS != 'CANCELLED';
+
+        IF (V_BOOKED_CAP + P_REQUESTED_GUESTS) <= V_MAX_CAP THEN
+            RETURN TRUE;
+        ELSE
+            RETURN FALSE;
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Invalid Tour Package ID provided.');
+    END FN_CHECK_PACKAGE_AVAILABILITY;
+
+    PROCEDURE PROC_CREATE_BOOKING(
+        P_TOURIST_ID    IN NUMBER,
+        P_PACKAGE_ID    IN NUMBER,
+        P_TRAVEL_DATE   IN DATE,
+        P_NUM_GUESTS    IN NUMBER,
+        P_BOOKING_ID    OUT NUMBER
+    ) IS
+        V_UNIT_PRICE NUMBER(10,2);
+        V_TOTAL_COST NUMBER(10,2);
+    BEGIN
+        IF P_TRAVEL_DATE <= SYSDATE THEN
+            RAISE_APPLICATION_ERROR(-20002, 'Travel date must be set in the future.');
+        END IF;
+
+        IF NOT FN_CHECK_PACKAGE_AVAILABILITY(P_PACKAGE_ID, P_NUM_GUESTS) THEN
+            RAISE_APPLICATION_ERROR(-20003, 'Target tour package is fully booked for requested capacity.');
+        END IF;
+
+        SELECT PRICE_PER_PERSON INTO V_UNIT_PRICE
+        FROM TOUR_PACKAGE
+        WHERE PACKAGE_ID = P_PACKAGE_ID;
+
+        V_TOTAL_COST := V_UNIT_PRICE * P_NUM_GUESTS;
+        P_BOOKING_ID := SEQ_BOOKING_ID.NEXTVAL;
+
+        INSERT INTO BOOKING (
+            BOOKING_ID, TOURIST_ID, PACKAGE_ID, BOOKING_DATE, 
+            TRAVEL_DATE, NUMBER_OF_GUESTS, TOTAL_AMOUNT, BOOKING_STATUS
+        ) VALUES (
+            P_BOOKING_ID, P_TOURIST_ID, P_PACKAGE_ID, SYSDATE, 
+            P_TRAVEL_DATE, P_NUM_GUESTS, V_TOTAL_COST, 'PENDING'
+        );
+
+        COMMIT;
+        DBMS_OUTPUT.PUT_LINE('Booking successfully created with ID: ' || P_BOOKING_ID);
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            RAISE;
+    END PROC_CREATE_BOOKING;
+
+    PROCEDURE PROC_PROCESS_PAYMENT(
+        P_BOOKING_ID     IN NUMBER,
+        P_AMOUNT         IN NUMBER,
+        P_PAYMENT_METHOD IN VARCHAR2
+    ) IS
+        V_DUE_AMOUNT NUMBER(10,2);
+    BEGIN
+        SELECT TOTAL_AMOUNT INTO V_DUE_AMOUNT
+        FROM BOOKING
+        WHERE BOOKING_ID = P_BOOKING_ID;
+
+        IF P_AMOUNT < V_DUE_AMOUNT THEN
+            RAISE_APPLICATION_ERROR(-20004, 'Insufficient payment amount.');
+        END IF;
+
+        INSERT INTO PAYMENT (
+            PAYMENT_ID, BOOKING_ID, PAYMENT_DATE, AMOUNT_PAID, PAYMENT_METHOD, PAYMENT_STATUS
+        ) VALUES (
+            SEQ_PAYMENT_ID.NEXTVAL, P_BOOKING_ID, SYSDATE, P_AMOUNT, P_PAYMENT_METHOD, 'COMPLETED'
+        );
+
+        UPDATE BOOKING
+        SET BOOKING_STATUS = 'CONFIRMED'
+        WHERE BOOKING_ID = P_BOOKING_ID;
+
+        COMMIT;
+        DBMS_OUTPUT.PUT_LINE('Payment processed. Booking ID ' || P_BOOKING_ID || ' is now CONFIRMED.');
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            ROLLBACK;
+            RAISE_APPLICATION_ERROR(-20005, 'Booking reference not found.');
+        WHEN OTHERS THEN
+            ROLLBACK;
+            RAISE;
+    END PROC_PROCESS_PAYMENT;
+
+END PKG_TOURISM_MANAGEMENT;
+/
