@@ -227,14 +227,18 @@ System scope, actors, and process flow, modeled using BPMN swimlanes from touris
 - [ ] Final report
 - [ ] Live demonstration
 
+## PowerBI Dashbaord Screenshots (Innovation Phase)
+
 ## Final Demonstration Checklist
 
-- [ ] Database structure
-- [ ] Query execution
-- [ ] PL/SQL programs
-- [ ] Triggers and packages
-- [ ] Audit system
-- [ ] Innovation component (Power BI dashboard)
+![Project Screenshot](images/screenshot.png)
+
+- [x] Database structure
+- [x] Query execution
+- [x] PL/SQL programs
+- [x] Triggers and packages
+- [x] Audit system
+- [x] Innovation component (Power BI dashboard)
 
 ---
 
